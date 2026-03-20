@@ -60,6 +60,11 @@ class HalftimeEffect : public EffectProcessorImpl<HalftimeGroupState> {
     EngineEffectParameterPointer m_pFormant;
     EngineEffectParameterPointer m_pSpecFreeze;
     EngineEffectParameterPointer m_pSubGain;
+    EngineEffectParameterPointer m_pReverse;
+    EngineEffectParameterPointer m_pGrainRandom;
+    EngineEffectParameterPointer m_pStereoWidth;
+    EngineEffectParameterPointer m_pSpectralTilt;
+    EngineEffectParameterPointer m_pPhaseRandom;
 
     SINT m_lastLatency = 0;
 

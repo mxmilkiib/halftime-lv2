@@ -75,16 +75,29 @@ private:
     double strength_ = 1.0;
     double sr_       = 44100.0;
 
-    // Simple moving average envelope estimator
+    // Running-sum moving average envelope estimator — O(N) instead of O(N*W).
     static void estimateEnvelope(const double* mag, double* env, std::size_t n) noexcept {
+        if (n == 0) return;
+
+        // Bootstrap: compute initial sum for window centred at k=0
+        const std::size_t hi0 = std::min(SMOOTH_W, n - 1);
+        double sum = 0.0;
+        for (std::size_t j = 0; j <= hi0; ++j)
+            sum += mag[j];
+
         for (std::size_t k = 0; k < n; ++k) {
             const std::size_t lo = (k >= SMOOTH_W) ? k - SMOOTH_W : 0;
             const std::size_t hi = std::min(k + SMOOTH_W, n - 1);
-            double sum = 0.0;
-            for (std::size_t j = lo; j <= hi; ++j)
-                sum += mag[j];
-            env[k] = sum / static_cast<double>(hi - lo + 1);
-            env[k] = std::max(env[k], 1e-10); // avoid division by zero
+
+            // Slide window: add new right edge, remove old left edge
+            if (k > 0) {
+                if (k + SMOOTH_W < n)
+                    sum += mag[k + SMOOTH_W];
+                if (k > SMOOTH_W + 1)
+                    sum -= mag[k - SMOOTH_W - 1];
+            }
+
+            env[k] = std::max(sum / static_cast<double>(hi - lo + 1), 1e-10);
         }
     }
 };

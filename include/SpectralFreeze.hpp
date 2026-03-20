@@ -22,6 +22,7 @@ public:
     static constexpr std::size_t MAX_BINS = 1025;
 
     void setBlend(double b) noexcept { blend_ = std::clamp(b, 0.0, 1.0); }
+    void setPhaseRandom(double r) noexcept { phase_random_ = std::clamp(r, 0.0, 1.0); }
 
     // Capture the next incoming frame as the freeze snapshot.
     // Thread-safe: sets a flag read by process() on the audio thread.
@@ -58,15 +59,28 @@ public:
             frame.mag[k] = frame.mag[k] * live_w + frozen_mag_[k] * frozen_w;
         }
 
-        // Phase is left untouched — it evolves naturally, which gives
-        // the frozen sound a slowly shifting character rather than a
-        // static tone.
+        // Optional phase randomization — slowly drifts frozen bin phases
+        // for a more organic, granular-pad-like sustained sound.
+        if (phase_random_ > 0.001 && frame.phase) {
+            for (std::size_t k = 0; k < N; ++k) {
+                // Scale randomization by blend amount and phase_random knob
+                const double drift = (prngNext() - 0.5) * 2.0 * M_PI * phase_random_ * frozen_w;
+                frame.phase[k] += drift;
+            }
+        }
     }
 
 private:
     double frozen_mag_[MAX_BINS] = {};
-    double blend_     = 0.0;
-    double sr_        = 44100.0;
+    double blend_         = 0.0;
+    double phase_random_  = 0.0;
+    double sr_            = 44100.0;
+    uint32_t prng_state_  = 54321;
     std::atomic<bool> pending_latch_{false};
-    bool   has_snapshot_   = false;
+    bool   has_snapshot_  = false;
+
+    double prngNext() noexcept {
+        prng_state_ = prng_state_ * 1664525u + 1013904223u;
+        return static_cast<double>(prng_state_) / 4294967296.0;
+    }
 };

@@ -25,6 +25,7 @@
 class OlaEngine {
 public:
     static constexpr std::size_t MAX_BUF    = 262144;
+    static constexpr std::size_t MAX_GRAIN  = MAX_BUF / 4;
     static constexpr std::size_t CORR_LEN   = 256;   // samples used for correlation
     static constexpr std::size_t SEARCH_WIN = 512;   // ±samples around nominal position
 
@@ -33,11 +34,14 @@ public:
         double grain_ms   = 80.0;
         bool   freeze     = false;
         bool   trans_lock = false;
+        bool   reverse    = false;
+        double random     = 0.0;  // 0.0 = no randomization, 1.0 = full grain-length jitter
     };
 
     explicit OlaEngine() {
         std::memset(buf_,      0, sizeof(buf_));
         std::memset(out_tail_, 0, sizeof(out_tail_));
+        rebuildWindowLut();
     }
 
     void setSampleRate(double sr) {
@@ -51,6 +55,8 @@ public:
         speed_smoother_.setTarget(p.speed);
         freeze_     = p.freeze;
         trans_lock_ = p.trans_lock;
+        reverse_    = p.reverse;
+        random_     = p.random;
     }
 
     // Direct per-sample speed setter — bypasses the ms->samples path.
@@ -61,12 +67,18 @@ public:
 
     // Set grain size directly in samples — used by BPM sync.
     void setGrainSamplesDirect(std::size_t gs) noexcept {
-        grain_samps_ = std::clamp(gs, std::size_t{1}, MAX_BUF / 4);
+        const auto clamped = std::clamp(gs, std::size_t{1}, MAX_GRAIN);
+        if (clamped == grain_samps_) return;
+        grain_samps_ = clamped;
         grain_ms_    = static_cast<double>(grain_samps_) / sr_ * 1000.0;
+        rebuildWindowLut();
     }
 
     void setWindowShape(WindowShape shape) noexcept {
-        win_shape_ = shape;
+        if (shape != win_shape_) {
+            win_shape_ = shape;
+            rebuildWindowLut();
+        }
     }
 
     void reset() noexcept {
@@ -108,7 +120,16 @@ public:
                         // Snap to detected onset — skip correlation search
                         start_[g] = (write_ptr_ + MAX_BUF - gs) % MAX_BUF;
                     } else {
-                        start_[g] = wsolaSearch(nominal, g);
+                        // Apply random jitter to nominal position before WSOLA search
+                        std::size_t search_pos = nominal;
+                        if (random_ > 0.001) {
+                            const double jitter_range = random_ * static_cast<double>(gs);
+                            const double jitter = (prngNext() - 0.5) * 2.0 * jitter_range;
+                            search_pos = (nominal + MAX_BUF +
+                                static_cast<std::size_t>(static_cast<int>(jitter) + static_cast<int>(MAX_BUF))
+                            ) % MAX_BUF;
+                        }
+                        start_[g] = wsolaSearch(search_pos, g);
                     }
 
                     // Save a copy of the new grain's head as the next reference tail
@@ -117,18 +138,20 @@ public:
                 }
             }
 
-            // Interpolated read
+            // Cubic Hermite interpolated read — much less HF attenuation than linear
+            // In reverse mode, read backwards from end of grain
+            const double phase_pos = reverse_
+                ? static_cast<double>(gs) - 1.0 - phase_[g]
+                : phase_[g];
             const double   rp   = static_cast<double>((start_[g] + offset) % MAX_BUF)
-                                 + phase_[g];
-            const std::size_t r0 = static_cast<std::size_t>(rp) % MAX_BUF;
-            const std::size_t r1 = (r0 + 1) % MAX_BUF;
-            const double frac    = rp - std::floor(rp);
-            const double samp    = buf_[r0] * (1.0 - frac) + buf_[r1] * frac;
-            const double win     = window::evaluate(win_shape_,
-                static_cast<double>(pi) / static_cast<double>(gs));
-            const double norm    = window::normCoeff(win_shape_);
+                                 + phase_pos;
+            const std::size_t ri = static_cast<std::size_t>(rp) % MAX_BUF;
+            const double frac   = rp - std::floor(rp);
+            const double samp   = cubicHermite(
+                readBuf(ri + MAX_BUF - 1), readBuf(ri),
+                readBuf(ri + 1),           readBuf(ri + 2), frac);
 
-            out += samp * win * norm;
+            out += samp * win_lut_[pi] * win_norm_;
 
             // Advance read phase at smoothed speed
             phase_[g] = std::fmod(phase_[g] + speed, static_cast<double>(gs));
@@ -161,11 +184,33 @@ private:
     double      sr_          = 44100.0;
     bool        freeze_      = false;
     bool        trans_lock_  = false;
+    bool        reverse_     = false;
+    double      random_      = 0.0;
+    uint32_t    prng_state_  = 12345;
     WindowShape win_shape_   = WindowShape::Hann;
+    double      win_lut_[MAX_GRAIN] = {};
+    double      win_norm_    = 1.0;
     ParamSmoother speed_smoother_;
+
+    // Fast LCG PRNG — returns [0.0, 1.0)
+    double prngNext() noexcept {
+        prng_state_ = prng_state_ * 1664525u + 1013904223u;
+        return static_cast<double>(prng_state_) / 4294967296.0;
+    }
 
     double readBuf(std::size_t idx) const noexcept {
         return buf_[idx % MAX_BUF];
+    }
+
+    // 4-point cubic Hermite (Catmull-Rom) interpolation.
+    // Preserves HF content much better than linear; 3 extra multiply-adds.
+    static double cubicHermite(double y0, double y1, double y2, double y3,
+                               double t) noexcept {
+        const double c0 = y1;
+        const double c1 = 0.5 * (y2 - y0);
+        const double c2 = y0 - 2.5 * y1 + 2.0 * y2 - 0.5 * y3;
+        const double c3 = 0.5 * (y3 - y0) + 1.5 * (y1 - y2);
+        return ((c3 * t + c2) * t + c1) * t + c0;
     }
 
     // Normalised cross-correlation between out_tail_[g] and the buffer
@@ -183,19 +228,36 @@ private:
         return (denom > 1e-10) ? (num / denom) : 0.0;
     }
 
-    // Search ±SEARCH_WIN around nominal for highest correlation.
-    // Stepped search — checks every 4th sample to keep CPU cost bounded.
+    // 2-pass hierarchical WSOLA search around nominal position.
+    // Pass 1: coarse sweep at step=16 over ±SEARCH_WIN (~64 correlations).
+    // Pass 2: fine sweep at step=1 over ±FINE_RADIUS around best coarse hit (~32).
+    // Total: ~96 correlations vs ~256 for the old flat step=4 approach (~2.7x faster).
+    static constexpr int COARSE_STEP  = 16;
+    static constexpr int FINE_RADIUS  = 16;
+
     std::size_t wsolaSearch(std::size_t nominal, int g) const noexcept {
         std::size_t best_pos  = nominal;
         double      best_corr = -2.0;
-        const int   step      = 4;
 
+        // Pass 1: coarse
         for (int delta = -static_cast<int>(SEARCH_WIN);
                  delta <= static_cast<int>(SEARCH_WIN);
-                 delta += step)
+                 delta += COARSE_STEP)
         {
             const std::size_t candidate =
                 (nominal + MAX_BUF + static_cast<std::size_t>(delta)) % MAX_BUF;
+            const double corr = correlate(candidate, g);
+            if (corr > best_corr) {
+                best_corr = corr;
+                best_pos  = candidate;
+            }
+        }
+
+        // Pass 2: fine search around coarse winner
+        const std::size_t coarse_best = best_pos;
+        for (int delta = -FINE_RADIUS; delta <= FINE_RADIUS; ++delta) {
+            const std::size_t candidate =
+                (coarse_best + MAX_BUF + static_cast<std::size_t>(delta)) % MAX_BUF;
             const double corr = correlate(candidate, g);
             if (corr > best_corr) {
                 best_corr = corr;
@@ -209,6 +271,14 @@ private:
         grain_ms_    = ms;
         grain_samps_ = static_cast<std::size_t>(
             std::clamp(ms / 1000.0 * sr_, 1.0,
-                       static_cast<double>(MAX_BUF / 4)));
+                       static_cast<double>(MAX_GRAIN)));
+        rebuildWindowLut();
+    }
+
+    void rebuildWindowLut() noexcept {
+        const double gs_d = static_cast<double>(grain_samps_);
+        for (std::size_t i = 0; i < grain_samps_; ++i)
+            win_lut_[i] = window::evaluate(win_shape_, static_cast<double>(i) / gs_d);
+        win_norm_ = window::normCoeff(win_shape_);
     }
 };

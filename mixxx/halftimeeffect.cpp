@@ -136,6 +136,55 @@ EffectManifestPointer HalftimeEffect::getManifest() {
     subGain->setUnitsHint(EffectManifestParameter::UnitsHint::Unknown);
     subGain->setRange(0.0, 0.0, 1.0);
 
+    EffectManifestParameterPointer reverse = pManifest->addParameter();
+    reverse->setId("reverse");
+    reverse->setName(QObject::tr("Reverse"));
+    reverse->setShortName(QObject::tr("Rev"));
+    reverse->setDescription(QObject::tr("Read grains backwards"));
+    reverse->setValueScaler(EffectManifestParameter::ValueScaler::Toggle);
+    reverse->setUnitsHint(EffectManifestParameter::UnitsHint::Unknown);
+    reverse->setRange(0.0, 0.0, 1.0);
+
+    EffectManifestParameterPointer grainRandom = pManifest->addParameter();
+    grainRandom->setId("grain_random");
+    grainRandom->setName(QObject::tr("Grain Random"));
+    grainRandom->setShortName(QObject::tr("Rand"));
+    grainRandom->setDescription(QObject::tr(
+            "Randomize grain start positions for diffuse pad textures"));
+    grainRandom->setValueScaler(EffectManifestParameter::ValueScaler::Linear);
+    grainRandom->setUnitsHint(EffectManifestParameter::UnitsHint::Unknown);
+    grainRandom->setRange(0.0, 0.0, 1.0);
+
+    EffectManifestParameterPointer stereoWidth = pManifest->addParameter();
+    stereoWidth->setId("stereo_width");
+    stereoWidth->setName(QObject::tr("Stereo Width"));
+    stereoWidth->setShortName(QObject::tr("Width"));
+    stereoWidth->setDescription(QObject::tr(
+            "Stereo width (0=mono, 1=normal, 2=wide)"));
+    stereoWidth->setValueScaler(EffectManifestParameter::ValueScaler::Linear);
+    stereoWidth->setUnitsHint(EffectManifestParameter::UnitsHint::Unknown);
+    stereoWidth->setRange(0.0, 1.0, 2.0);
+
+    EffectManifestParameterPointer spectralTilt = pManifest->addParameter();
+    spectralTilt->setId("spectral_tilt");
+    spectralTilt->setName(QObject::tr("Spectral Tilt"));
+    spectralTilt->setShortName(QObject::tr("Tilt"));
+    spectralTilt->setDescription(QObject::tr(
+            "Frequency-dependent gain slope (-1=dark, 0=flat, +1=bright)"));
+    spectralTilt->setValueScaler(EffectManifestParameter::ValueScaler::Linear);
+    spectralTilt->setUnitsHint(EffectManifestParameter::UnitsHint::Unknown);
+    spectralTilt->setRange(-1.0, 0.0, 1.0);
+
+    EffectManifestParameterPointer phaseRandom = pManifest->addParameter();
+    phaseRandom->setId("phase_random");
+    phaseRandom->setName(QObject::tr("Phase Random"));
+    phaseRandom->setShortName(QObject::tr("PhRnd"));
+    phaseRandom->setDescription(QObject::tr(
+            "Randomize phase during spectral freeze for organic drones"));
+    phaseRandom->setValueScaler(EffectManifestParameter::ValueScaler::Linear);
+    phaseRandom->setUnitsHint(EffectManifestParameter::UnitsHint::Unknown);
+    phaseRandom->setRange(0.0, 0.0, 1.0);
+
     return pManifest;
 }
 
@@ -153,6 +202,11 @@ void HalftimeEffect::loadEngineEffectParameters(
     m_pFormant     = parameters.value("formant");
     m_pSpecFreeze  = parameters.value("spec_freeze");
     m_pSubGain     = parameters.value("sub_gain");
+    m_pReverse     = parameters.value("reverse");
+    m_pGrainRandom = parameters.value("grain_random");
+    m_pStereoWidth = parameters.value("stereo_width");
+    m_pSpectralTilt = parameters.value("spectral_tilt");
+    m_pPhaseRandom = parameters.value("phase_random");
 }
 
 void HalftimeEffect::processChannel(
@@ -185,6 +239,11 @@ void HalftimeEffect::processChannel(
     c.formant_strength = static_cast<float>(m_pFormant->value());
     c.spectral_freeze  = static_cast<float>(m_pSpecFreeze->value());
     c.sub_gain         = static_cast<float>(m_pSubGain->value());
+    c.reverse          = m_pReverse->toBool() ? 1.f : 0.f;
+    c.grain_random     = static_cast<float>(m_pGrainRandom->value());
+    c.stereo_width     = static_cast<float>(m_pStereoWidth->value());
+    c.spectral_tilt    = static_cast<float>(m_pSpectralTilt->value());
+    c.phase_random     = static_cast<float>(m_pPhaseRandom->value());
     c.wet              = 1.f;
     plugin.pushControls(c);
 

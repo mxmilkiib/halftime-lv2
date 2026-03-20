@@ -130,4 +130,25 @@
         lv2:index 25 ; lv2:symbol "lookahead" ; lv2:name "Lookahead" ;
         lv2:default 1.0 ; lv2:minimum 0.0 ; lv2:maximum 1.0 ;
         lv2:portProperty lv2:toggled
+    ], [
+        a lv2:ControlPort, lv2:InputPort ;
+        lv2:index 26 ; lv2:symbol "reverse" ; lv2:name "Reverse" ;
+        lv2:default 0.0 ; lv2:minimum 0.0 ; lv2:maximum 1.0 ;
+        lv2:portProperty lv2:toggled
+    ], [
+        a lv2:ControlPort, lv2:InputPort ;
+        lv2:index 27 ; lv2:symbol "grain_random" ; lv2:name "Grain random" ;
+        lv2:default 0.0 ; lv2:minimum 0.0 ; lv2:maximum 1.0
+    ], [
+        a lv2:ControlPort, lv2:InputPort ;
+        lv2:index 28 ; lv2:symbol "stereo_width" ; lv2:name "Stereo width" ;
+        lv2:default 1.0 ; lv2:minimum 0.0 ; lv2:maximum 2.0
+    ], [
+        a lv2:ControlPort, lv2:InputPort ;
+        lv2:index 29 ; lv2:symbol "spectral_tilt" ; lv2:name "Spectral tilt" ;
+        lv2:default 0.0 ; lv2:minimum -1.0 ; lv2:maximum 1.0
+    ], [
+        a lv2:ControlPort, lv2:InputPort ;
+        lv2:index 30 ; lv2:symbol "phase_random" ; lv2:name "Phase random" ;
+        lv2:default 0.0 ; lv2:minimum 0.0 ; lv2:maximum 1.0
     ] .

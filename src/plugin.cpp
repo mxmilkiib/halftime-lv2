@@ -16,7 +16,7 @@
 
 struct StateUrids {
     LV2_URID atom_Float;
-    LV2_URID p[20];
+    LV2_URID p[25];
 };
 
 enum PortIndex : uint32_t {
@@ -46,10 +46,15 @@ enum PortIndex : uint32_t {
     CTRL_MORPH_BEATS    = 23,
     CTRL_PHASE_LOCK     = 24,
     CTRL_LOOKAHEAD      = 25,
-    PORT_COUNT          = 26,
+    CTRL_REVERSE        = 26,
+    CTRL_GRAIN_RANDOM   = 27,
+    CTRL_STEREO_WIDTH   = 28,
+    CTRL_SPECTRAL_TILT  = 29,
+    CTRL_PHASE_RANDOM   = 30,
+    PORT_COUNT          = 31,
 };
 
-static_assert(PORT_COUNT == 26, "Port count must match manifest.ttl");
+static_assert(PORT_COUNT == 31, "Port count must match manifest.ttl");
 
 struct Instance {
     HalftimePlugin plugin;
@@ -66,11 +71,13 @@ static const char* STATE_URIS[] = {
     PLUGIN_URI "#spec_latch",   PLUGIN_URI "#sub_gain",     PLUGIN_URI "#sub_mode",
     PLUGIN_URI "#morph_in",     PLUGIN_URI "#morph_out",    PLUGIN_URI "#morph_beats",
     PLUGIN_URI "#phase_lock",   PLUGIN_URI "#lookahead",
+    PLUGIN_URI "#reverse",      PLUGIN_URI "#grain_random", PLUGIN_URI "#stereo_width",
+    PLUGIN_URI "#spectral_tilt",PLUGIN_URI "#phase_random",
 };
 
 static void mapUrids(StateUrids& u, LV2_URID_Map* map) {
     u.atom_Float = map->map(map->handle, LV2_ATOM__Float);
-    for (int i = 0; i < 20; ++i)
+    for (int i = 0; i < 25; ++i)
         u.p[i] = map->map(map->handle, STATE_URIS[i]);
 }
 
@@ -134,6 +141,11 @@ static void run(LV2_Handle handle, uint32_t n) {
     c.morph_beats      = rf(CTRL_MORPH_BEATS);
     c.phase_lock       = rf(CTRL_PHASE_LOCK);
     c.lookahead_enable = rf(CTRL_LOOKAHEAD);
+    c.reverse          = rf(CTRL_REVERSE);
+    c.grain_random     = rf(CTRL_GRAIN_RANDOM);
+    c.stereo_width     = rf(CTRL_STEREO_WIDTH);
+    c.spectral_tilt    = rf(CTRL_SPECTRAL_TILT);
+    c.phase_random     = rf(CTRL_PHASE_RANDOM);
 
     inst->plugin.setControls(c);
 
@@ -168,11 +180,13 @@ static LV2_State_Status state_save(
         c.bpm_division, c.formant_strength, c.spectral_freeze,
         c.spectral_latch, c.sub_gain, c.sub_mode,
         c.morph_in, c.morph_out, c.morph_beats,
-        c.phase_lock, c.lookahead_enable
+        c.phase_lock, c.lookahead_enable,
+        c.reverse, c.grain_random, c.stereo_width,
+        c.spectral_tilt, c.phase_random
     };
-    static_assert(sizeof(fields)/sizeof(float) == 20);
+    static_assert(sizeof(fields)/sizeof(float) == 25);
 
-    for (int i = 0; i < 20; ++i)
+    for (int i = 0; i < 25; ++i)
         store(sh, u.p[i], &fields[i], sizeof(float), u.atom_Float,
               LV2_STATE_IS_POD | LV2_STATE_IS_PORTABLE);
 
@@ -194,10 +208,12 @@ static LV2_State_Status state_restore(
         &c.bpm_division, &c.formant_strength, &c.spectral_freeze,
         &c.spectral_latch, &c.sub_gain, &c.sub_mode,
         &c.morph_in, &c.morph_out, &c.morph_beats,
-        &c.phase_lock, &c.lookahead_enable
+        &c.phase_lock, &c.lookahead_enable,
+        &c.reverse, &c.grain_random, &c.stereo_width,
+        &c.spectral_tilt, &c.phase_random
     };
 
-    for (int i = 0; i < 20; ++i) {
+    for (int i = 0; i < 25; ++i) {
         std::size_t sz; uint32_t type, flags;
         const void* val = retrieve(sh, u.p[i], &sz, &type, &flags);
         if (val && sz == sizeof(float))

@@ -4,6 +4,7 @@
 #include "CompositeSpectralProcessor.hpp"
 #include "FormantShifter.hpp"
 #include "SpectralFreeze.hpp"
+#include "SpectralTilt.hpp"
 #include "PhaseLockProcessor.hpp"
 #include "TransientLookaheadScheduler.hpp"
 #include "SubBassEnhancer.hpp"
@@ -85,6 +86,11 @@ public:
         float morph_beats      = 2.f;
         float phase_lock       = 1.f;
         float lookahead_enable = 1.f;
+        float reverse          = 0.f;
+        float grain_random     = 0.f;
+        float stereo_width     = 1.f;
+        float spectral_tilt    = 0.f;
+        float phase_random     = 0.f;
     };
 
 
@@ -206,6 +212,8 @@ public:
         OlaEngine::Params p;
         p.freeze     = c.freeze > 0.5f;
         p.trans_lock = c.transient_lock > 0.5f;
+        p.reverse    = c.reverse > 0.5f;
+        p.random     = static_cast<double>(std::clamp(c.grain_random, 0.f, 1.f));
 
         const bool bpm_active = bpm_division_ > 0 && bpm_cache_ > 0.0;
         if (bpm_active) {
@@ -253,11 +261,16 @@ public:
             b->setMode(sub_mode);
         }
 
-        // Spectral freeze blend
-        if (freeze_l_) freeze_l_->setBlend(
-            static_cast<double>(std::clamp(c.spectral_freeze, 0.f, 1.f)));
-        if (freeze_r_) freeze_r_->setBlend(
-            static_cast<double>(std::clamp(c.spectral_freeze, 0.f, 1.f)));
+        // Spectral freeze blend + phase randomization
+        const double sf_blend = static_cast<double>(std::clamp(c.spectral_freeze, 0.f, 1.f));
+        const double sf_phrand = static_cast<double>(std::clamp(c.phase_random, 0.f, 1.f));
+        if (freeze_l_) { freeze_l_->setBlend(sf_blend); freeze_l_->setPhaseRandom(sf_phrand); }
+        if (freeze_r_) { freeze_r_->setBlend(sf_blend); freeze_r_->setPhaseRandom(sf_phrand); }
+
+        // Spectral tilt
+        const double tilt_val = static_cast<double>(std::clamp(c.spectral_tilt, -1.f, 1.f));
+        if (tilt_l_) tilt_l_->setTilt(tilt_val);
+        if (tilt_r_) tilt_r_->setTilt(tilt_val);
 
         // Phase lock enable/disable
         if (plock_l_) plock_l_->setEnabled(c.phase_lock > 0.5f);
@@ -265,6 +278,9 @@ public:
 
         // Lookahead
         lookahead_enabled_ = c.lookahead_enable > 0.5f;
+
+        // Stereo width
+        stereo_width_ = static_cast<double>(std::clamp(c.stereo_width, 0.f, 2.f));
 
         const uint32_t nl = computeLatency();
         if (nl != last_latency_) {
@@ -336,6 +352,15 @@ public:
 
             limiter_.process(wl, wr);
 
+            // Stereo width via M/S processing
+            // width=1.0: unchanged, width=0.0: mono, width=2.0: exaggerated stereo
+            if (std::abs(stereo_width_ - 1.0) > 0.001) {
+                const double mid  = (wl + wr) * 0.5;
+                const double side = (wl - wr) * 0.5;
+                wl = mid + side * stereo_width_;
+                wr = mid - side * stereo_width_;
+            }
+
             // Delay dry signal to match wet path latency (OLA + PV)
             const double dry_l = dry_delay_l_.push(xl);
             const double dry_r = dry_delay_r_.push(xr);
@@ -387,6 +412,9 @@ private:
     FormantShifter*      formant_r_  = nullptr;
     SpectralFreeze*      freeze_l_   = nullptr;
     SpectralFreeze*      freeze_r_   = nullptr;
+    SpectralTilt*        tilt_l_     = nullptr;
+    SpectralTilt*        tilt_r_     = nullptr;
+    double               stereo_width_ = 1.0;
 
     // Edge-trigger state
     float prev_spectral_latch_ = 0.f;
@@ -396,7 +424,7 @@ private:
 
     // MARK: -- spectral chain build
 
-    // Chain order: PhaseLock -> Formant -> Freeze
+    // Chain order: PhaseLock -> Formant -> Tilt -> Freeze
     void buildSpectralChain() {
         for (int ch = 0; ch < 2; ++ch) {
             auto comp = std::make_unique<CompositeSpectralProcessor>();
@@ -409,6 +437,10 @@ private:
             auto* formant_ptr = formant.get();
             comp->add(std::move(formant));
 
+            auto tilt = std::make_unique<SpectralTilt>();
+            auto* tilt_ptr = tilt.get();
+            comp->add(std::move(tilt));
+
             auto freeze = std::make_unique<SpectralFreeze>();
             auto* freeze_ptr = freeze.get();
             comp->add(std::move(freeze));
@@ -416,11 +448,13 @@ private:
             if (ch == 0) {
                 plock_l_   = plock_ptr;
                 formant_l_ = formant_ptr;
+                tilt_l_    = tilt_ptr;
                 freeze_l_  = freeze_ptr;
                 pv_l_.setSpectralProcessor(std::move(comp));
             } else {
                 plock_r_   = plock_ptr;
                 formant_r_ = formant_ptr;
+                tilt_r_    = tilt_ptr;
                 freeze_r_  = freeze_ptr;
                 pv_r_.setSpectralProcessor(std::move(comp));
             }
