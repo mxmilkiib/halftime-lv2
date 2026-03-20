@@ -162,28 +162,49 @@ private:
             processor_->process(frame);
         }
 
-        // Synthesis: pitch-shift by resampling the spectrum
+        // Synthesis: pitch-shift by resampling the spectrum.
+        // When multiple source bins map to the same target bin, use the
+        // phase from the highest-magnitude contributor (winner-take-all)
+        // to avoid corrupted phase accumulation from bin collisions.
         std::memset(syn_re_, 0, sizeof(syn_re_));
         std::memset(syn_im_, 0, sizeof(syn_im_));
+
+        // Pass 1: find dominant source bin and total magnitude per target bin
+        double syn_mag[HALF + 1] = {};
+        double syn_freq[HALF + 1] = {};
+        double best_mag[HALF + 1] = {};
+        bool   syn_used[HALF + 1] = {};
 
         for (std::size_t k = 0; k <= HALF; ++k) {
             const std::size_t new_bin = static_cast<std::size_t>(
                 std::round(static_cast<double>(k) * pitch_ratio_));
             if (new_bin > HALF) continue;
 
-            // Phase accumulation for synthesis bin
-            const double new_freq = freq_[k] * pitch_ratio_;
-            const double dp = (new_freq - static_cast<double>(new_bin) * freq_per_bin_)
-                            * expect_phase_ / freq_per_bin_;
-            sum_phase_[new_bin] += static_cast<double>(new_bin) * expect_phase_ + dp;
+            syn_mag[new_bin] += mag_[k];
+            syn_used[new_bin] = true;
 
-            syn_re_[new_bin] += mag_[k] * std::cos(sum_phase_[new_bin]);
-            syn_im_[new_bin] += mag_[k] * std::sin(sum_phase_[new_bin]);
+            // Track the highest-magnitude contributor for phase
+            if (mag_[k] > best_mag[new_bin]) {
+                best_mag[new_bin] = mag_[k];
+                syn_freq[new_bin] = freq_[k] * pitch_ratio_;
+            }
+        }
+
+        // Pass 2: accumulate phase once per output bin, synthesise
+        for (std::size_t nb = 0; nb <= HALF; ++nb) {
+            if (!syn_used[nb]) continue;
+
+            const double dp = (syn_freq[nb] - static_cast<double>(nb) * freq_per_bin_)
+                            * expect_phase_ / freq_per_bin_;
+            sum_phase_[nb] += static_cast<double>(nb) * expect_phase_ + dp;
+
+            syn_re_[nb] = syn_mag[nb] * std::cos(sum_phase_[nb]);
+            syn_im_[nb] = syn_mag[nb] * std::sin(sum_phase_[nb]);
 
             // Mirror for negative frequencies
-            if (new_bin > 0 && new_bin < HALF) {
-                syn_re_[FFT_SIZE - new_bin] = syn_re_[new_bin];
-                syn_im_[FFT_SIZE - new_bin] = -syn_im_[new_bin];
+            if (nb > 0 && nb < HALF) {
+                syn_re_[FFT_SIZE - nb] = syn_re_[nb];
+                syn_im_[FFT_SIZE - nb] = -syn_im_[nb];
             }
         }
 

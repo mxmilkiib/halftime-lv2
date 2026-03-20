@@ -74,9 +74,11 @@ public:
         std::memset(out_tail_, 0, sizeof(out_tail_));
         write_ptr_  = 0;
         phase_[0]   = 0.0;
-        phase_[1]   = 0.0;
+        phase_[1]   = static_cast<double>(grain_samps_ / 2);
         start_[0]   = 0;
         start_[1]   = 0;
+        boundary_done_[0] = false;
+        boundary_done_[1] = false;
         speed_smoother_.reset(speed_smoother_.target());
     }
 
@@ -96,7 +98,8 @@ public:
             const std::size_t pi    = static_cast<std::size_t>(phase_[g]);
 
             // Grain boundary — find best-correlation start position
-            if (pi == 0) {
+            if (pi == 0 && !boundary_done_[g]) {
+                boundary_done_[g] = true;
                 if (!freeze_) {
                     const std::size_t nominal =
                         (write_ptr_ + MAX_BUF - gs + offset) % MAX_BUF;
@@ -129,6 +132,9 @@ public:
 
             // Advance read phase at smoothed speed
             phase_[g] = std::fmod(phase_[g] + speed, static_cast<double>(gs));
+            // Reset boundary guard once we've moved past sample 0
+            if (static_cast<std::size_t>(phase_[g]) > 0)
+                boundary_done_[g] = false;
         }
 
         return out;
@@ -147,8 +153,9 @@ private:
     double out_tail_[2][CORR_LEN];
 
     std::size_t write_ptr_   = 0;
-    double      phase_[2]    = {0.0, 0.0};
+    double      phase_[2]    = {0.0, 1764.0}; // grain 1 staggered by gs/2
     std::size_t start_[2]    = {0, 0};
+    bool        boundary_done_[2] = {false, false};
     std::size_t grain_samps_ = 3528;
     double      grain_ms_    = 80.0;
     double      sr_          = 44100.0;

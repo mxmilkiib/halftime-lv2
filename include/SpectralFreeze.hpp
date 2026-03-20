@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <cstddef>
@@ -24,14 +25,14 @@ public:
 
     // Capture the next incoming frame as the freeze snapshot.
     // Thread-safe: sets a flag read by process() on the audio thread.
-    void latch() noexcept { pending_latch_ = true; }
+    void latch() noexcept { pending_latch_.store(true, std::memory_order_release); }
 
     void setSampleRate(double sr) noexcept override { sr_ = sr; }
 
     void reset() noexcept override {
         std::memset(frozen_mag_, 0, sizeof(frozen_mag_));
         blend_ = 0.0;
-        pending_latch_ = false;
+        pending_latch_.store(false, std::memory_order_relaxed);
         has_snapshot_ = false;
     }
 
@@ -39,10 +40,10 @@ public:
         const std::size_t N = std::min(frame.half_size + 1, MAX_BINS);
 
         // Latch current frame if requested
-        if (pending_latch_) {
+        if (pending_latch_.load(std::memory_order_acquire)) {
             for (std::size_t k = 0; k < N; ++k)
                 frozen_mag_[k] = frame.mag[k];
-            pending_latch_ = false;
+            pending_latch_.store(false, std::memory_order_relaxed);
             has_snapshot_ = true;
         }
 
@@ -66,6 +67,6 @@ private:
     double frozen_mag_[MAX_BINS] = {};
     double blend_     = 0.0;
     double sr_        = 44100.0;
-    bool   pending_latch_ = false;
+    std::atomic<bool> pending_latch_{false};
     bool   has_snapshot_   = false;
 };

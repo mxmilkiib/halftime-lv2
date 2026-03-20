@@ -53,7 +53,7 @@ namespace window {
     switch (shape) {
         case WindowShape::Hann:      return 1.0;      // Hann at 50% overlap sums to 1
         case WindowShape::Blackman:  return 1.0/0.84;  // slightly lower energy
-        case WindowShape::RectTaper: return 1.0/1.84;  // high flat-top energy
+        case WindowShape::RectTaper: return 1.0/2.0;   // flat-top sums to 2.0 at 50% overlap
         default:                     return 1.0;
     }
 }

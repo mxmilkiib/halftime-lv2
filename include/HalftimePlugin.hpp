@@ -20,7 +20,39 @@
 #include "TransientDetector.hpp"
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <memory>
+
+// Simple ring-buffer delay line for dry signal latency compensation.
+// Delays the dry path by the same amount as the wet path (OLA + PhaseVocoder)
+// so dry/wet mixing doesn't produce comb filtering.
+class DryDelay {
+public:
+    static constexpr std::size_t MAX_DELAY = 131072; // covers 500ms@192k + FFT
+
+    void setDelay(std::size_t samples) noexcept {
+        delay_ = std::min(samples, MAX_DELAY - 1);
+    }
+
+    [[nodiscard]] double push(double input) noexcept {
+        const std::size_t read_pos = (write_ + MAX_DELAY - delay_) & MASK;
+        const double out = buf_[read_pos];
+        buf_[write_] = input;
+        write_ = (write_ + 1) & MASK;
+        return out;
+    }
+
+    void reset() noexcept {
+        std::memset(buf_, 0, sizeof(buf_));
+        write_ = 0;
+    }
+
+private:
+    static constexpr std::size_t MASK = MAX_DELAY - 1;
+    double buf_[MAX_DELAY] = {};
+    std::size_t write_ = 0;
+    std::size_t delay_ = 0;
+};
 
 // HalftimePlugin — assembles the full DSP chain.
 // Completely independent of LV2 except for BpmSync (which needs LV2 atoms).
@@ -81,6 +113,7 @@ public:
         speed_smooth_.setSampleRate(sr, 30.0);
         formant_smooth_.setSampleRate(sr, 30.0);
         last_latency_ = computeLatency();
+        updateDryDelay();
     }
 
 #ifdef HALFTIME_HAS_LV2
@@ -95,6 +128,8 @@ public:
         for (auto* d : {&dc_l_, &dc_r_})           d->reset();
         for (auto* b : {&sub_l_, &sub_r_})         b->reset();
         for (auto* l : {&lookahead_l_, &lookahead_r_}) l->reset();
+        dry_delay_l_.reset();
+        dry_delay_r_.reset();
         transient_.reset();
         prev_spectral_latch_ = 0.f;
         prev_morph_in_       = 0.f;
@@ -232,7 +267,11 @@ public:
         lookahead_enabled_ = c.lookahead_enable > 0.5f;
 
         const uint32_t nl = computeLatency();
-        if (nl != last_latency_) { last_latency_ = nl; return true; }
+        if (nl != last_latency_) {
+            last_latency_ = nl;
+            updateDryDelay();
+            return true;
+        }
         return false;
     }
 
@@ -297,8 +336,12 @@ public:
 
             limiter_.process(wl, wr);
 
-            out_l[i] = static_cast<float>(wl * wet + xl * (1.0 - wet));
-            out_r[i] = static_cast<float>(wr * wet + xr * (1.0 - wet));
+            // Delay dry signal to match wet path latency (OLA + PV)
+            const double dry_l = dry_delay_l_.push(xl);
+            const double dry_r = dry_delay_r_.push(xr);
+
+            out_l[i] = static_cast<float>(wl * wet + dry_l * (1.0 - wet));
+            out_r[i] = static_cast<float>(wr * wet + dry_r * (1.0 - wet));
         }
     }
 
@@ -316,6 +359,7 @@ private:
     DcBlocker                    dc_l_,  dc_r_;
     SubBassEnhancer              sub_l_, sub_r_;
     OutputLimiter                limiter_;
+    DryDelay                     dry_delay_l_, dry_delay_r_;
     TransientDetector            transient_;
     TransientLookaheadScheduler  lookahead_l_, lookahead_r_;
 #ifdef HALFTIME_HAS_LV2
@@ -389,6 +433,14 @@ private:
         return ola_l_.latencySamples()
              + PhaseVocoder::latencySamples()
              + lookahead;
+    }
+
+    // Wet path internal delay = OLA + PhaseVocoder (not lookahead — both paths share it)
+    void updateDryDelay() noexcept {
+        const std::size_t wet_delay =
+            ola_l_.latencySamples() + PhaseVocoder::latencySamples();
+        dry_delay_l_.setDelay(wet_delay);
+        dry_delay_r_.setDelay(wet_delay);
     }
 
     void handleEdgeTriggers(const ControlPorts& c) noexcept {
