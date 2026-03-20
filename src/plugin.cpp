@@ -9,6 +9,7 @@
 #include <string_view>
 #include <new>
 #include <cstring>
+#define HALFTIME_HAS_LV2
 #include "HalftimePlugin.hpp"
 
 #define PLUGIN_URI "https://github.com/milkii/halftime-lv2"

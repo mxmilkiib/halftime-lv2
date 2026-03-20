@@ -10,7 +10,9 @@
 #include "StutterGrid.hpp"
 #include "DcBlocker.hpp"
 #include "OutputLimiter.hpp"
+#ifdef HALFTIME_HAS_LV2
 #include "BpmSync.hpp"
+#endif
 #include "ParamSmoother.hpp"
 #include "ParamQueue.hpp"
 #include "MorphController.hpp"
@@ -70,7 +72,9 @@ public:
         for (auto* b : {&sub_l_, &sub_r_})         b->setSampleRate(sr);
         for (auto* l : {&lookahead_l_, &lookahead_r_}) l->setSampleRate(sr);
         transient_.setSampleRate(sr);
+#ifdef HALFTIME_HAS_LV2
         bpm_.setSampleRate(sr);
+#endif
         morph_.setSampleRate(sr);
         wet_smooth_.setSampleRate(sr, 20.0);
         pitch_smooth_.setSampleRate(sr, 50.0);
@@ -79,7 +83,9 @@ public:
         last_latency_ = computeLatency();
     }
 
+#ifdef HALFTIME_HAS_LV2
     void initUrids(LV2_URID_Map* map) { bpm_.init(map); }
+#endif
 
     // Full DSP state reset — called from LV2 activate()
     void reset() noexcept {
@@ -106,6 +112,7 @@ public:
 
     // MARK: BPM ATOM PROCESSING
 
+#ifdef HALFTIME_HAS_LV2
     // Audio thread, before processBlock
     bool processBpmAtoms(const LV2_Atom_Sequence* seq) {
         const bool changed = bpm_.readPosition(seq);
@@ -117,6 +124,29 @@ public:
             if (nl != last_latency_) { last_latency_ = nl; return true; }
         }
         return false;
+    }
+#endif
+
+    // Direct BPM setter for non-LV2 hosts (e.g. Mixxx).
+    // Returns true if latency changed.
+    bool setBpm(double bpm) noexcept {
+        if (bpm <= 0.0 || std::abs(bpm - bpm_cache_) < 0.01) return false;
+        bpm_cache_ = bpm;
+        morph_.setBpm(bpm);
+        if (bpm_division_ > 0) {
+            const double beat_samps = sr_ * 60.0 / bpm;
+            const double grain = beat_samps / static_cast<double>(bpm_division_);
+            const auto gs = static_cast<std::size_t>(
+                std::clamp(grain, 64.0, static_cast<double>(OlaEngine::MAX_BUF / 4)));
+            for (auto* e : {&ola_l_, &ola_r_}) e->setGrainSamplesDirect(gs);
+        }
+        const uint32_t nl = computeLatency();
+        if (nl != last_latency_) { last_latency_ = nl; return true; }
+        return false;
+    }
+
+    void setBpmDivision(int div) noexcept {
+        bpm_division_ = std::clamp(div, 0, 8);
     }
 
 
@@ -132,15 +162,22 @@ public:
         for (auto* e : {&ola_l_, &ola_r_}) e->setWindowShape(shape);
 
         // BPM division
-        bpm_.setDivision(static_cast<int>(std::round(c.bpm_division)));
+        bpm_division_ = static_cast<int>(std::round(c.bpm_division));
+#ifdef HALFTIME_HAS_LV2
+        bpm_.setDivision(bpm_division_);
+#endif
 
         // OLA params
         OlaEngine::Params p;
         p.freeze     = c.freeze > 0.5f;
         p.trans_lock = c.transient_lock > 0.5f;
 
-        if (bpm_.active()) {
-            const std::size_t gs = bpm_.grainSamples(bpm_.division());
+        const bool bpm_active = bpm_division_ > 0 && bpm_cache_ > 0.0;
+        if (bpm_active) {
+            const double beat_samps = sr_ * 60.0 / bpm_cache_;
+            const double grain = beat_samps / static_cast<double>(bpm_division_);
+            const auto gs = static_cast<std::size_t>(
+                std::clamp(grain, 64.0, static_cast<double>(OlaEngine::MAX_BUF / 4)));
             for (auto* e : {&ola_l_, &ola_r_}) {
                 e->setParams(p);
                 e->setGrainSamplesDirect(gs);
@@ -161,7 +198,7 @@ public:
 
         morph_.setTargetSpeed(
             static_cast<double>(std::clamp(c.speed, 25.f, 100.f)) / 100.0);
-        morph_.setBpm(bpm_.bpm() > 0.0 ? bpm_.bpm() : 120.0);
+        morph_.setBpm(bpm_cache_ > 0.0 ? bpm_cache_ : 120.0);
 
         // Stutter
         for (auto* s : {&stutter_l_, &stutter_r_})
@@ -281,7 +318,11 @@ private:
     OutputLimiter                limiter_;
     TransientDetector            transient_;
     TransientLookaheadScheduler  lookahead_l_, lookahead_r_;
+#ifdef HALFTIME_HAS_LV2
     BpmSync                      bpm_;
+#endif
+    double                       bpm_cache_     = 0.0;
+    int                          bpm_division_  = 0;
     MorphController              morph_;
     ParamSmoother                wet_smooth_, pitch_smooth_,
                                  speed_smooth_, formant_smooth_;

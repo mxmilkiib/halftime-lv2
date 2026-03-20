@@ -45,6 +45,7 @@ public:
     }
 
     void setSemitones(double semi) noexcept {
+        semitones_   = semi;
         pitch_ratio_ = std::pow(2.0, semi / 12.0);
     }
 
@@ -98,11 +99,11 @@ private:
 
     // Circular input accumulator for overlap
     double frame_buf_[FFT_SIZE]   = {};
-    std::size_t frame_pos_        = 0;
 
     std::size_t in_count_  = 0;
     std::size_t out_read_  = 0;
     double sr_             = 44100.0;
+    double semitones_      = 0.0;
     double pitch_ratio_    = 1.0;
     double freq_per_bin_   = 44100.0 / FFT_SIZE;
     double expect_phase_   = 2.0 * M_PI * HOP / FFT_SIZE;

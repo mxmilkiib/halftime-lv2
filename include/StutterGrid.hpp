@@ -3,7 +3,6 @@
 #include <cstddef>
 #include <cmath>
 #include <algorithm>
-#include "ParamSmoother.hpp"
 
 // StutterGrid — click-free rhythmic looper.
 //
@@ -22,9 +21,7 @@ public:
         std::memset(prev_tail_, 0, sizeof(prev_tail_));
     }
 
-    void setSampleRate(double sr) {
-        wet_smoother_.setSampleRate(sr, 10.0);
-    }
+    void setSampleRate(double) noexcept {}
 
     void setDiv(int div) noexcept {
         next_div_ = std::max(1, std::min(div, 16));
@@ -79,7 +76,6 @@ private:
     std::size_t phase_    = 0;
     int         div_      = 1;
     int         next_div_ = 1;
-    ParamSmoother wet_smoother_;
 
     static double hann(double ph) noexcept {
         return 0.5 - 0.5 * std::cos(2.0 * M_PI * ph);

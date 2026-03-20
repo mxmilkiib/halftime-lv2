@@ -15,12 +15,11 @@
 //   - Loss of attack transient sharpness
 //   - Unnatural sibilance on vocals
 //
-// Algorithm:
+// Algorithm (Laroche-Dolson):
 //   1. Find spectral peaks: local magnitude maxima above a noise floor.
-//   2. For each peak bin p, compute its synthesis phase increment normally.
-//   3. For each non-peak bin k in a ±N neighbourhood of p:
-//      instead of computing an independent phase increment, propagate the
-//      peak's phase increment scaled by the bin frequency ratio.
+//   2. For each non-peak bin k in a +/-N neighbourhood of the nearest peak p:
+//      lock its true frequency to harmonic coherence with the peak:
+//      true_freq[k] = true_freq[p] * (k / p).
 
 class PhaseLockProcessor final : public ISpectralProcessor {
 public:
@@ -37,8 +36,7 @@ public:
     void setSampleRate(double sr) noexcept override { sr_ = sr; }
 
     void reset() noexcept override {
-        std::memset(is_peak_,        0, sizeof(is_peak_));
-        std::memset(peak_phase_inc_, 0, sizeof(peak_phase_inc_));
+        std::memset(is_peak_, 0, sizeof(is_peak_));
     }
 
     void process(SpectralFrame& frame) noexcept override {
@@ -64,13 +62,7 @@ public:
             }
         }
 
-        // Step 2: compute peak phase increments
-        for (std::size_t k = 0; k <= H; ++k) {
-            if (is_peak_[k])
-                peak_phase_inc_[k] = frame.pitch_ratio * frame.true_freq[k];
-        }
-
-        // Step 3: propagate peak phase to neighbours
+        // Step 2: propagate peak frequency to neighbours
         for (std::size_t k = 0; k <= H; ++k) {
             if (is_peak_[k]) continue;
 
@@ -101,9 +93,8 @@ public:
 
 private:
     static constexpr std::size_t MAX_BINS = 1025;
-    bool   is_peak_[MAX_BINS]        = {};
-    double peak_phase_inc_[MAX_BINS] = {};
-    double sr_            = 44100.0;
+    bool   is_peak_[MAX_BINS] = {};
+    double sr_                = 44100.0;
     int    neighbourhood_ = 6;
     double noise_floor_   = 0.05;
     bool   enabled_       = true;

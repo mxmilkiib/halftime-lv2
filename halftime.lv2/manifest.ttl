@@ -5,11 +5,12 @@
 @prefix time:  <http://lv2plug.in/ns/ext/time#> .
 @prefix urid:  <http://lv2plug.in/ns/ext/urid#> .
 @prefix state: <http://lv2plug.in/ns/ext/state#> .
+@prefix doap:  <http://usefulinc.com/ns/doap#> .
 
 <https://github.com/milkii/halftime-lv2>
     a lv2:Plugin ;
     lv2:binary <halftime.so> ;
-    rdfs:label "Halftime" ;
+    doap:name "Halftime" ;
     rdfs:comment "WSOLA-based halftime/slowdown effect with phase vocoder, spectral freeze, formant preservation, BPM sync, and morph transitions." ;
 
     lv2:requiredFeature urid:map ;
@@ -17,116 +18,116 @@
 
     lv2:port [
         a lv2:AudioPort, lv2:InputPort ;
-        lv2:index 0 ; lv2:symbol "in_l" ; rdfs:label "Audio In L"
+        lv2:index 0 ; lv2:symbol "in_l" ; lv2:name "Audio In L"
     ], [
         a lv2:AudioPort, lv2:InputPort ;
-        lv2:index 1 ; lv2:symbol "in_r" ; rdfs:label "Audio In R"
+        lv2:index 1 ; lv2:symbol "in_r" ; lv2:name "Audio In R"
     ], [
         a lv2:AudioPort, lv2:OutputPort ;
-        lv2:index 2 ; lv2:symbol "out_l" ; rdfs:label "Audio Out L"
+        lv2:index 2 ; lv2:symbol "out_l" ; lv2:name "Audio Out L"
     ], [
         a lv2:AudioPort, lv2:OutputPort ;
-        lv2:index 3 ; lv2:symbol "out_r" ; rdfs:label "Audio Out R"
+        lv2:index 3 ; lv2:symbol "out_r" ; lv2:name "Audio Out R"
     ], [
         a lv2:ControlPort, lv2:InputPort ;
-        lv2:index 4 ; lv2:symbol "speed" ; rdfs:label "Speed" ;
+        lv2:index 4 ; lv2:symbol "speed" ; lv2:name "Speed" ;
         lv2:default 50.0 ; lv2:minimum 25.0 ; lv2:maximum 100.0
     ], [
         a lv2:ControlPort, lv2:InputPort ;
-        lv2:index 5 ; lv2:symbol "grain_ms" ; rdfs:label "Grain size" ;
+        lv2:index 5 ; lv2:symbol "grain_ms" ; lv2:name "Grain size" ;
         lv2:default 80.0 ; lv2:minimum 20.0 ; lv2:maximum 500.0
     ], [
         a lv2:ControlPort, lv2:InputPort ;
-        lv2:index 6 ; lv2:symbol "wet" ; rdfs:label "Wet" ;
+        lv2:index 6 ; lv2:symbol "wet" ; lv2:name "Wet" ;
         lv2:default 1.0 ; lv2:minimum 0.0 ; lv2:maximum 1.0
     ], [
         a lv2:ControlPort, lv2:InputPort ;
-        lv2:index 7 ; lv2:symbol "pitch_semi" ; rdfs:label "Pitch" ;
+        lv2:index 7 ; lv2:symbol "pitch_semi" ; lv2:name "Pitch" ;
         lv2:default 0.0 ; lv2:minimum -12.0 ; lv2:maximum 12.0
     ], [
         a lv2:ControlPort, lv2:InputPort ;
-        lv2:index 8 ; lv2:symbol "stutter_div" ; rdfs:label "Stutter" ;
+        lv2:index 8 ; lv2:symbol "stutter_div" ; lv2:name "Stutter" ;
         lv2:default 1.0 ; lv2:minimum 1.0 ; lv2:maximum 16.0 ;
         lv2:portProperty lv2:integer
     ], [
         a lv2:ControlPort, lv2:InputPort ;
-        lv2:index 9 ; lv2:symbol "freeze" ; rdfs:label "Freeze" ;
+        lv2:index 9 ; lv2:symbol "freeze" ; lv2:name "Freeze" ;
         lv2:default 0.0 ; lv2:minimum 0.0 ; lv2:maximum 1.0 ;
         lv2:portProperty lv2:toggled
     ], [
         a lv2:ControlPort, lv2:InputPort ;
-        lv2:index 10 ; lv2:symbol "trans_lock" ; rdfs:label "Transient lock" ;
+        lv2:index 10 ; lv2:symbol "trans_lock" ; lv2:name "Transient lock" ;
         lv2:default 0.0 ; lv2:minimum 0.0 ; lv2:maximum 1.0 ;
         lv2:portProperty lv2:toggled
     ], [
         a lv2:ControlPort, lv2:InputPort ;
-        lv2:index 11 ; lv2:symbol "sensitivity" ; rdfs:label "Sensitivity" ;
+        lv2:index 11 ; lv2:symbol "sensitivity" ; lv2:name "Sensitivity" ;
         lv2:default 1.0 ; lv2:minimum 0.5 ; lv2:maximum 2.0
     ], [
         a lv2:ControlPort, lv2:InputPort ;
-        lv2:index 12 ; lv2:symbol "win_shape" ; rdfs:label "Window shape" ;
+        lv2:index 12 ; lv2:symbol "win_shape" ; lv2:name "Window shape" ;
         lv2:default 0.0 ; lv2:minimum 0.0 ; lv2:maximum 2.0 ;
         lv2:portProperty lv2:integer
     ], [
         a lv2:ControlPort, lv2:InputPort ;
-        lv2:index 13 ; lv2:symbol "bpm_div" ; rdfs:label "BPM division" ;
+        lv2:index 13 ; lv2:symbol "bpm_div" ; lv2:name "BPM division" ;
         lv2:default 0.0 ; lv2:minimum 0.0 ; lv2:maximum 8.0 ;
         lv2:portProperty lv2:integer
     ], [
         a lv2:ControlPort, lv2:OutputPort ;
-        lv2:index 14 ; lv2:symbol "latency" ; rdfs:label "Latency" ;
+        lv2:index 14 ; lv2:symbol "latency" ; lv2:name "Latency" ;
         lv2:designation lv2:latency ;
         lv2:portProperty lv2:reportsLatency, lv2:integer
     ], [
         a atom:AtomPort, lv2:InputPort ;
-        lv2:index 15 ; lv2:symbol "time_pos" ; rdfs:label "Time position" ;
+        lv2:index 15 ; lv2:symbol "time_pos" ; lv2:name "Time position" ;
         atom:bufferType atom:Sequence ;
         atom:supports time:Position ;
         lv2:designation time:position
     ], [
         a lv2:ControlPort, lv2:InputPort ;
-        lv2:index 16 ; lv2:symbol "formant" ; rdfs:label "Formant" ;
+        lv2:index 16 ; lv2:symbol "formant" ; lv2:name "Formant" ;
         lv2:default 1.0 ; lv2:minimum 0.0 ; lv2:maximum 1.0
     ], [
         a lv2:ControlPort, lv2:InputPort ;
-        lv2:index 17 ; lv2:symbol "spec_freeze" ; rdfs:label "Spectral freeze" ;
+        lv2:index 17 ; lv2:symbol "spec_freeze" ; lv2:name "Spectral freeze" ;
         lv2:default 0.0 ; lv2:minimum 0.0 ; lv2:maximum 1.0
     ], [
         a lv2:ControlPort, lv2:InputPort ;
-        lv2:index 18 ; lv2:symbol "spec_latch" ; rdfs:label "Spectral latch" ;
+        lv2:index 18 ; lv2:symbol "spec_latch" ; lv2:name "Spectral latch" ;
         lv2:default 0.0 ; lv2:minimum 0.0 ; lv2:maximum 1.0 ;
         lv2:portProperty lv2:toggled
     ], [
         a lv2:ControlPort, lv2:InputPort ;
-        lv2:index 19 ; lv2:symbol "sub_gain" ; rdfs:label "Sub gain" ;
+        lv2:index 19 ; lv2:symbol "sub_gain" ; lv2:name "Sub gain" ;
         lv2:default 0.0 ; lv2:minimum 0.0 ; lv2:maximum 1.0
     ], [
         a lv2:ControlPort, lv2:InputPort ;
-        lv2:index 20 ; lv2:symbol "sub_mode" ; rdfs:label "Sub mode" ;
+        lv2:index 20 ; lv2:symbol "sub_mode" ; lv2:name "Sub mode" ;
         lv2:default 0.0 ; lv2:minimum 0.0 ; lv2:maximum 1.0 ;
         lv2:portProperty lv2:toggled
     ], [
         a lv2:ControlPort, lv2:InputPort ;
-        lv2:index 21 ; lv2:symbol "morph_in" ; rdfs:label "Morph in" ;
+        lv2:index 21 ; lv2:symbol "morph_in" ; lv2:name "Morph in" ;
         lv2:default 0.0 ; lv2:minimum 0.0 ; lv2:maximum 1.0 ;
         lv2:portProperty lv2:toggled
     ], [
         a lv2:ControlPort, lv2:InputPort ;
-        lv2:index 22 ; lv2:symbol "morph_out" ; rdfs:label "Morph out" ;
+        lv2:index 22 ; lv2:symbol "morph_out" ; lv2:name "Morph out" ;
         lv2:default 0.0 ; lv2:minimum 0.0 ; lv2:maximum 1.0 ;
         lv2:portProperty lv2:toggled
     ], [
         a lv2:ControlPort, lv2:InputPort ;
-        lv2:index 23 ; lv2:symbol "morph_beats" ; rdfs:label "Morph beats" ;
+        lv2:index 23 ; lv2:symbol "morph_beats" ; lv2:name "Morph beats" ;
         lv2:default 2.0 ; lv2:minimum 0.5 ; lv2:maximum 8.0
     ], [
         a lv2:ControlPort, lv2:InputPort ;
-        lv2:index 24 ; lv2:symbol "phase_lock" ; rdfs:label "Phase lock" ;
+        lv2:index 24 ; lv2:symbol "phase_lock" ; lv2:name "Phase lock" ;
         lv2:default 1.0 ; lv2:minimum 0.0 ; lv2:maximum 1.0 ;
         lv2:portProperty lv2:toggled
     ], [
         a lv2:ControlPort, lv2:InputPort ;
-        lv2:index 25 ; lv2:symbol "lookahead" ; rdfs:label "Lookahead" ;
+        lv2:index 25 ; lv2:symbol "lookahead" ; lv2:name "Lookahead" ;
         lv2:default 1.0 ; lv2:minimum 0.0 ; lv2:maximum 1.0 ;
         lv2:portProperty lv2:toggled
     ] .
