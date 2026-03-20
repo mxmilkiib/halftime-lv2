@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.18)
-project(halftime-lv2 CXX)
+project(halftime-lv2 C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -47,3 +47,23 @@ install(
 
 # Tests
 add_subdirectory(tests)
+
+# DPF-based plugin with GUI (LV2 + VST2 + VST3 + CLAP + standalone)
+option(BUILD_DPF_PLUGIN "Build the DPF plugin with GUI" ON)
+if(BUILD_DPF_PLUGIN)
+    add_subdirectory(dpf)
+
+    dpf_add_plugin(halftime-dpf
+        TARGETS lv2 vst2 vst3 clap jack
+        UI_TYPE opengl
+        FILES_DSP
+            dpf-plugin/HalftimeDPF.cpp
+        FILES_UI
+            dpf-plugin/HalftimeUI.cpp
+    )
+
+    target_include_directories(halftime-dpf PUBLIC
+        "${CMAKE_SOURCE_DIR}/include"
+        "${CMAKE_SOURCE_DIR}/dpf-plugin"
+    )
+endif()

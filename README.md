@@ -108,12 +108,25 @@ DryDelay                                ring-buffer delay for dry/wet alignment
 ## build
 
 ```sh
+git submodule update --init --recursive   # fetch DPF + pugl
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
-cmake --install build   # installs to ~/.lv2/halftime.lv2
+cmake --install build   # installs raw LV2 to ~/.lv2/halftime.lv2
 ```
 
-requires: C++17 compiler, LV2 development headers (`pkg-config --exists lv2`).
+requires: C++17 compiler, LV2 development headers, OpenGL development headers, X11/xcb headers.
+
+the DPF build (`-DBUILD_DPF_PLUGIN=ON`, default) produces these artifacts in `build/bin/`:
+
+| format | file | notes |
+|--------|------|-------|
+| LV2 (with GUI) | `halftime-dpf.lv2/` | DSP + UI split binaries |
+| VST2 | `halftime-dpf-vst2.so` | |
+| VST3 | `halftime-dpf.vst3/` | |
+| CLAP | `halftime-dpf.clap` | |
+| JACK standalone | `halftime-dpf` | |
+
+to build only the raw LV2 (no GUI, no DPF dependency): `cmake -B build -DBUILD_DPF_PLUGIN=OFF`
 
 ## test
 
