@@ -151,4 +151,52 @@
         a lv2:ControlPort, lv2:InputPort ;
         lv2:index 30 ; lv2:symbol "phase_random" ; lv2:name "Phase random" ;
         lv2:default 0.0 ; lv2:minimum 0.0 ; lv2:maximum 1.0
+    ], [
+        a lv2:ControlPort, lv2:InputPort ;
+        lv2:index 31 ; lv2:symbol "input_gain" ; lv2:name "Input gain" ;
+        lv2:default 0.0 ; lv2:minimum -24.0 ; lv2:maximum 24.0
+    ], [
+        a lv2:ControlPort, lv2:InputPort ;
+        lv2:index 32 ; lv2:symbol "output_gain" ; lv2:name "Output gain" ;
+        lv2:default 0.0 ; lv2:minimum -24.0 ; lv2:maximum 24.0
+    ], [
+        a lv2:ControlPort, lv2:InputPort ;
+        lv2:index 33 ; lv2:symbol "eq_low" ; lv2:name "EQ low" ;
+        lv2:default 0.0 ; lv2:minimum -48.0 ; lv2:maximum 12.0
+    ], [
+        a lv2:ControlPort, lv2:InputPort ;
+        lv2:index 34 ; lv2:symbol "eq_mid" ; lv2:name "EQ mid" ;
+        lv2:default 0.0 ; lv2:minimum -48.0 ; lv2:maximum 12.0
+    ], [
+        a lv2:ControlPort, lv2:InputPort ;
+        lv2:index 35 ; lv2:symbol "eq_high" ; lv2:name "EQ high" ;
+        lv2:default 0.0 ; lv2:minimum -48.0 ; lv2:maximum 12.0
+    ], [
+        a lv2:ControlPort, lv2:InputPort ;
+        lv2:index 36 ; lv2:symbol "eq_out_low" ; lv2:name "Out EQ low" ;
+        lv2:default 0.0 ; lv2:minimum -48.0 ; lv2:maximum 12.0
+    ], [
+        a lv2:ControlPort, lv2:InputPort ;
+        lv2:index 37 ; lv2:symbol "eq_out_mid" ; lv2:name "Out EQ mid" ;
+        lv2:default 0.0 ; lv2:minimum -48.0 ; lv2:maximum 12.0
+    ], [
+        a lv2:ControlPort, lv2:InputPort ;
+        lv2:index 38 ; lv2:symbol "eq_out_high" ; lv2:name "Out EQ high" ;
+        lv2:default 0.0 ; lv2:minimum -48.0 ; lv2:maximum 12.0
+    ], [
+        a lv2:ControlPort, lv2:InputPort ;
+        lv2:index 39 ; lv2:symbol "manual_bpm" ; lv2:name "Manual BPM" ;
+        lv2:default 0.0 ; lv2:minimum 0.0 ; lv2:maximum 300.0
+    ], [
+        a lv2:ControlPort, lv2:InputPort ;
+        lv2:index 40 ; lv2:symbol "sub_freq" ; lv2:name "Sub frequency" ;
+        lv2:default 80.0 ; lv2:minimum 30.0 ; lv2:maximum 200.0
+    ], [
+        a lv2:ControlPort, lv2:InputPort ;
+        lv2:index 41 ; lv2:symbol "sub_drive" ; lv2:name "Sub drive" ;
+        lv2:default 0.0 ; lv2:minimum 0.0 ; lv2:maximum 1.0
+    ], [
+        a lv2:ControlPort, lv2:InputPort ;
+        lv2:index 42 ; lv2:symbol "smooth" ; lv2:name "Smooth" ;
+        lv2:default 0.5 ; lv2:minimum 0.0 ; lv2:maximum 1.0
     ] .

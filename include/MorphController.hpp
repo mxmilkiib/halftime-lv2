@@ -17,6 +17,9 @@ class MorphController {
 public:
     enum class MorphDir { In, Out };
 
+
+    // MARK: LIFECYCLE
+
     void setSampleRate(double sr) noexcept { sr_ = sr; }
 
     void setBpm(double bpm) noexcept {
@@ -26,6 +29,10 @@ public:
     void setTargetSpeed(double speed) noexcept {
         target_speed_ = std::clamp(speed, 0.25, 1.0);
     }
+
+
+
+    // MARK: TRIGGERS
 
     // Trigger a morph-in (ramp from current speed to target halftime speed)
     void morphIn(double beats = 2.0) noexcept {
@@ -40,6 +47,9 @@ public:
     }
 
     [[nodiscard]] bool isActive() const noexcept { return active_; }
+
+
+    // MARK: PER-SAMPLE PROCESSING
 
     // Called per-sample from the audio thread. Returns the current speed value.
     [[nodiscard]] double tick() noexcept {

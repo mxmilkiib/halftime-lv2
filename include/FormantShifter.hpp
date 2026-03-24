@@ -75,29 +75,27 @@ private:
     double strength_ = 1.0;
     double sr_       = 44100.0;
 
-    // Running-sum moving average envelope estimator — O(N) instead of O(N*W).
+    // Bidirectional one-pole envelope estimator — Gaussian-like smoothing.
+    // Forward + backward one-pole passes produce a symmetric, sidelobe-free
+    // response, unlike the box filter's sinc. Same O(N) cost, cleaner result.
+    // alpha ≈ 2/(2*SMOOTH_W+1) matches the box filter's effective bandwidth.
     static void estimateEnvelope(const double* mag, double* env, std::size_t n) noexcept {
         if (n == 0) return;
 
-        // Bootstrap: compute initial sum for window centred at k=0
-        const std::size_t hi0 = std::min(SMOOTH_W, n - 1);
-        double sum = 0.0;
-        for (std::size_t j = 0; j <= hi0; ++j)
-            sum += mag[j];
+        constexpr double alpha = 2.0 / (2.0 * SMOOTH_W + 1.0);
 
+        // Forward pass
+        double state = mag[0];
         for (std::size_t k = 0; k < n; ++k) {
-            const std::size_t lo = (k >= SMOOTH_W) ? k - SMOOTH_W : 0;
-            const std::size_t hi = std::min(k + SMOOTH_W, n - 1);
+            state += alpha * (mag[k] - state);
+            env[k] = state;
+        }
 
-            // Slide window: add new right edge, remove old left edge
-            if (k > 0) {
-                if (k + SMOOTH_W < n)
-                    sum += mag[k + SMOOTH_W];
-                if (k > SMOOTH_W + 1)
-                    sum -= mag[k - SMOOTH_W - 1];
-            }
-
-            env[k] = std::max(sum / static_cast<double>(hi - lo + 1), 1e-10);
+        // Backward pass — averages with forward for zero-phase symmetry
+        state = env[n - 1];
+        for (std::size_t k = n; k-- > 0; ) {
+            state += alpha * (env[k] - state);
+            env[k] = std::max(state, 1e-10);
         }
     }
 };

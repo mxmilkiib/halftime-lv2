@@ -15,6 +15,7 @@
 #include "BpmSync.hpp"
 #endif
 #include "ParamSmoother.hpp"
+#include "ThreeBandEQ.hpp"
 #include "ParamQueue.hpp"
 #include "MorphController.hpp"
 #include "WindowShapes.hpp"
@@ -58,13 +59,22 @@ private:
 // HalftimePlugin — assembles the full DSP chain.
 // Completely independent of LV2 except for BpmSync (which needs LV2 atoms).
 //
-// Chain per channel:
-//   input -> DC block -> lookahead delay -> OLA (WSOLA, transient-locked)
+// Per-sample signal chain (each channel):
+//   input -> input_gain -> EQ -> DC block -> lookahead delay
+//         -> OLA (WSOLA, transient-locked)
 //         -> PhaseVocoder (phase-lock + formant + freeze)
-//         -> SubBassEnhancer -> StutterGrid -> OutputLimiter -> dry/wet
+//         -> SubBassEnhancer -> StutterGrid -> OutputLimiter
+//         -> stereo width -> dry/wet blend -> output EQ -> output_gain
+//
+// Control flow:
+//   setControls() applies all parameter changes (called once per block).
+//   processBlock() runs the per-sample DSP loop.
+//   setBpm() / processBpmAtoms() handle tempo from host or manual knob.
 
 class HalftimePlugin {
 public:
+    // All host-facing parameters. Populated by the DPF or LV2 wrapper
+    // each audio block, then passed to setControls().
     struct ControlPorts {
         float speed            = 50.f;
         float grain_ms         = 80.f;
@@ -84,19 +94,33 @@ public:
         float morph_in         = 0.f;
         float morph_out        = 0.f;
         float morph_beats      = 2.f;
-        float phase_lock       = 1.f;
+        float phase_lock       = 0.f;
         float lookahead_enable = 1.f;
         float reverse          = 0.f;
         float grain_random     = 0.f;
         float stereo_width     = 1.f;
         float spectral_tilt    = 0.f;
         float phase_random     = 0.f;
+        float input_gain       = 0.f;
+        float output_gain      = 0.f;
+        float eq_low           = 0.f;
+        float eq_mid           = 0.f;
+        float eq_high          = 0.f;
+        float eq_out_low       = 0.f;
+        float eq_out_mid       = 0.f;
+        float eq_out_high      = 0.f;
+        float manual_bpm       = 0.f;
+        float sub_freq         = 80.f;
+        float sub_drive        = 0.f;
+        float smooth           = 0.5f;
     };
+
 
 
     // MARK: CONSTRUCTION
 
     HalftimePlugin() { buildSpectralChain(); }
+
 
 
     // MARK: LIFECYCLE
@@ -109,6 +133,8 @@ public:
         for (auto* d : {&dc_l_, &dc_r_})           d->setSampleRate(sr);
         for (auto* b : {&sub_l_, &sub_r_})         b->setSampleRate(sr);
         for (auto* l : {&lookahead_l_, &lookahead_r_}) l->setSampleRate(sr);
+        for (auto* q : {&eq_l_, &eq_r_})           q->setSampleRate(sr);
+        for (auto* q : {&eq_out_l_, &eq_out_r_})   q->setSampleRate(sr);
         transient_.setSampleRate(sr);
 #ifdef HALFTIME_HAS_LV2
         bpm_.setSampleRate(sr);
@@ -118,6 +144,8 @@ public:
         pitch_smooth_.setSampleRate(sr, 50.0);
         speed_smooth_.setSampleRate(sr, 30.0);
         formant_smooth_.setSampleRate(sr, 30.0);
+        in_gain_smooth_.setSampleRate(sr, 20.0);
+        out_gain_smooth_.setSampleRate(sr, 20.0);
         last_latency_ = computeLatency();
         updateDryDelay();
     }
@@ -126,7 +154,7 @@ public:
     void initUrids(LV2_URID_Map* map) { bpm_.init(map); }
 #endif
 
-    // Full DSP state reset — called from LV2 activate()
+    // Full DSP state reset — called from LV2 activate() / DPF activate()
     void reset() noexcept {
         for (auto* e : {&ola_l_, &ola_r_})        e->reset();
         for (auto* p : {&pv_l_,  &pv_r_})         p->reset();
@@ -134,6 +162,8 @@ public:
         for (auto* d : {&dc_l_, &dc_r_})           d->reset();
         for (auto* b : {&sub_l_, &sub_r_})         b->reset();
         for (auto* l : {&lookahead_l_, &lookahead_r_}) l->reset();
+        for (auto* q : {&eq_l_, &eq_r_})           q->reset();
+        for (auto* q : {&eq_out_l_, &eq_out_r_})   q->reset();
         dry_delay_l_.reset();
         dry_delay_r_.reset();
         transient_.reset();
@@ -143,12 +173,14 @@ public:
     }
 
 
+
     // MARK: THREAD-SAFE CONTROL PUSH
 
-    // Called from GUI / control thread
+    // Called from the GUI / control thread — lock-free delivery to audio thread
     void pushControls(const ControlPorts& c) noexcept {
         param_queue_.push(c);
     }
+
 
 
     // MARK: BPM ATOM PROCESSING
@@ -168,7 +200,7 @@ public:
     }
 #endif
 
-    // Direct BPM setter for non-LV2 hosts (e.g. Mixxx).
+    // Direct BPM setter for DPF hosts and LV2 manual BPM fallback.
     // Returns true if latency changed.
     bool setBpm(double bpm) noexcept {
         if (bpm <= 0.0 || std::abs(bpm - bpm_cache_) < 0.01) return false;
@@ -191,8 +223,11 @@ public:
     }
 
 
+
     // MARK: AUDIO THREAD CONTROL APPLICATION
 
+    // Apply all control port values to DSP components. Called once per block.
+    // Returns true if latency changed (host must re-query).
     bool setControls(const ControlPorts& c) {
         handleEdgeTriggers(c);
         last_ctrl_ = c;
@@ -214,6 +249,7 @@ public:
         p.trans_lock = c.transient_lock > 0.5f;
         p.reverse    = c.reverse > 0.5f;
         p.random     = static_cast<double>(std::clamp(c.grain_random, 0.f, 1.f));
+        p.smooth     = static_cast<double>(std::clamp(c.smooth, 0.f, 1.f));
 
         const bool bpm_active = bpm_division_ > 0 && bpm_cache_ > 0.0;
         if (bpm_active) {
@@ -259,6 +295,8 @@ public:
         for (auto* b : {&sub_l_, &sub_r_}) {
             b->setGain(sub_gain);
             b->setMode(sub_mode);
+            b->setFreq(static_cast<double>(std::clamp(c.sub_freq, 30.f, 200.f)));
+            b->setDrive(static_cast<double>(std::clamp(c.sub_drive, 0.f, 1.f)));
         }
 
         // Spectral freeze blend + phase randomization
@@ -282,6 +320,28 @@ public:
         // Stereo width
         stereo_width_ = static_cast<double>(std::clamp(c.stereo_width, 0.f, 2.f));
 
+        // Input / output gain (dB -> linear)
+        in_gain_smooth_.setTarget(
+            std::pow(10.0, static_cast<double>(std::clamp(c.input_gain, -24.f, 24.f)) / 20.0));
+        out_gain_smooth_.setTarget(
+            std::pow(10.0, static_cast<double>(std::clamp(c.output_gain, -24.f, 24.f)) / 20.0));
+
+        // Three-band EQ
+        eq_l_.setLowGain (static_cast<double>(std::clamp(c.eq_low,  -48.f, 12.f)));
+        eq_l_.setMidGain (static_cast<double>(std::clamp(c.eq_mid,  -48.f, 12.f)));
+        eq_l_.setHighGain(static_cast<double>(std::clamp(c.eq_high, -48.f, 12.f)));
+        eq_r_.setLowGain (static_cast<double>(std::clamp(c.eq_low,  -48.f, 12.f)));
+        eq_r_.setMidGain (static_cast<double>(std::clamp(c.eq_mid,  -48.f, 12.f)));
+        eq_r_.setHighGain(static_cast<double>(std::clamp(c.eq_high, -48.f, 12.f)));
+
+        // Output three-band EQ
+        eq_out_l_.setLowGain (static_cast<double>(std::clamp(c.eq_out_low,  -48.f, 12.f)));
+        eq_out_l_.setMidGain (static_cast<double>(std::clamp(c.eq_out_mid,  -48.f, 12.f)));
+        eq_out_l_.setHighGain(static_cast<double>(std::clamp(c.eq_out_high, -48.f, 12.f)));
+        eq_out_r_.setLowGain (static_cast<double>(std::clamp(c.eq_out_low,  -48.f, 12.f)));
+        eq_out_r_.setMidGain (static_cast<double>(std::clamp(c.eq_out_mid,  -48.f, 12.f)));
+        eq_out_r_.setHighGain(static_cast<double>(std::clamp(c.eq_out_high, -48.f, 12.f)));
+
         const uint32_t nl = computeLatency();
         if (nl != last_latency_) {
             last_latency_ = nl;
@@ -290,6 +350,7 @@ public:
         }
         return false;
     }
+
 
 
     // MARK: MAIN AUDIO PROCESSING
@@ -306,9 +367,10 @@ public:
         const std::size_t gs = ola_l_.grainSamples();
 
         for (uint32_t i = 0; i < n; ++i) {
-            // DC blocking on raw input
-            const double xl_raw = dc_l_.process(static_cast<double>(in_l[i]));
-            const double xr_raw = dc_r_.process(static_cast<double>(in_r[i]));
+            // Input gain + EQ + DC block
+            const double in_g = in_gain_smooth_.next();
+            const double xl_raw = dc_l_.process(eq_l_.process(static_cast<double>(in_l[i]) * in_g));
+            const double xr_raw = dc_r_.process(eq_r_.process(static_cast<double>(in_r[i]) * in_g));
 
             // Per-sample smoothed controls
             const double wet   = wet_smooth_.next();
@@ -365,8 +427,11 @@ public:
             const double dry_l = dry_delay_l_.push(xl);
             const double dry_r = dry_delay_r_.push(xr);
 
-            out_l[i] = static_cast<float>(wl * wet + dry_l * (1.0 - wet));
-            out_r[i] = static_cast<float>(wr * wet + dry_r * (1.0 - wet));
+            const double out_g = out_gain_smooth_.next();
+            double ol = (wl * wet + dry_l * (1.0 - wet)) * out_g;
+            double or_ = (wr * wet + dry_r * (1.0 - wet)) * out_g;
+            out_l[i] = static_cast<float>(eq_out_l_.process(ol));
+            out_r[i] = static_cast<float>(eq_out_r_.process(or_));
         }
     }
 
@@ -375,6 +440,7 @@ public:
     const ControlPorts& lastControls() const noexcept { return last_ctrl_; }
 
 private:
+
 
     // MARK: -- dsp components
 
@@ -394,12 +460,16 @@ private:
     int                          bpm_division_  = 0;
     MorphController              morph_;
     ParamSmoother                wet_smooth_, pitch_smooth_,
-                                 speed_smooth_, formant_smooth_;
+                                 speed_smooth_, formant_smooth_,
+                                 in_gain_smooth_, out_gain_smooth_;
+    ThreeBandEQ                  eq_l_, eq_r_;
+    ThreeBandEQ                  eq_out_l_, eq_out_r_;
     ParamQueue<ControlPorts, 16> param_queue_;
     ControlPorts                 last_ctrl_;
     double                       sr_            = 44100.0;
     uint32_t                     last_latency_  = 0;
     bool                         lookahead_enabled_ = true;
+
 
 
     // MARK: -- spectral processor chain
@@ -420,6 +490,7 @@ private:
     float prev_spectral_latch_ = 0.f;
     float prev_morph_in_       = 0.f;
     float prev_morph_out_      = 0.f;
+
 
 
     // MARK: -- spectral chain build

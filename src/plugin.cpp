@@ -1,4 +1,11 @@
-// plugin.cpp — LV2 C ABI entry point.
+// plugin.cpp — LV2 C ABI entry point for the halftime plugin.
+//
+// Execution path:
+//   Host calls lv2_descriptor() -> instantiate() -> activate()
+//   Per block: connect_port() for each port, then run()
+//   run() reads control ports -> setControls() -> processBlock()
+//   State save/restore serialises all 37 control parameters.
+//
 // This is the only file that knows about LV2.
 
 #include <lv2/core/lv2.h>
@@ -14,11 +21,20 @@
 
 #define PLUGIN_URI "https://github.com/milkii/halftime-lv2"
 
+// Number of saveable parameters — must match the fields[] arrays
+// in state_save/state_restore and the STATE_URIS table.
+static constexpr int NUM_STATE_PARAMS = 37;
+
 struct StateUrids {
     LV2_URID atom_Float;
-    LV2_URID p[25];
+    LV2_URID p[NUM_STATE_PARAMS];
 };
 
+
+
+// MARK: PORT INDEX ENUM
+
+// Indices must match halftime.lv2/manifest.ttl exactly.
 enum PortIndex : uint32_t {
     AUDIO_IN_L          = 0,
     AUDIO_IN_R          = 1,
@@ -51,10 +67,25 @@ enum PortIndex : uint32_t {
     CTRL_STEREO_WIDTH   = 28,
     CTRL_SPECTRAL_TILT  = 29,
     CTRL_PHASE_RANDOM   = 30,
-    PORT_COUNT          = 31,
+    CTRL_INPUT_GAIN     = 31,
+    CTRL_OUTPUT_GAIN    = 32,
+    CTRL_EQ_LOW         = 33,
+    CTRL_EQ_MID         = 34,
+    CTRL_EQ_HIGH        = 35,
+    CTRL_EQ_OUT_LOW     = 36,
+    CTRL_EQ_OUT_MID     = 37,
+    CTRL_EQ_OUT_HIGH    = 38,
+    CTRL_MANUAL_BPM     = 39,
+    CTRL_SUB_FREQ       = 40,
+    CTRL_SUB_DRIVE      = 41,
+    CTRL_SMOOTH         = 42,
+    PORT_COUNT          = 43,
 };
 
-static_assert(PORT_COUNT == 31, "Port count must match manifest.ttl");
+static_assert(PORT_COUNT == 43, "Port count must match manifest.ttl");
+
+
+// MARK: INSTANCE
 
 struct Instance {
     HalftimePlugin plugin;
@@ -63,23 +94,42 @@ struct Instance {
     LV2_URID_Map*  map = nullptr;
 };
 
+
+
+// MARK: STATE PERSISTENCE
+
+// URIs for LV2 state save/restore. Order must match the fields[] arrays
+// in state_save() and state_restore() — one URI per ControlPorts member.
 static const char* STATE_URIS[] = {
-    PLUGIN_URI "#speed",        PLUGIN_URI "#grain_ms",     PLUGIN_URI "#wet",
-    PLUGIN_URI "#pitch_semi",   PLUGIN_URI "#stutter_div",  PLUGIN_URI "#freeze",
-    PLUGIN_URI "#trans_lock",   PLUGIN_URI "#sensitivity",  PLUGIN_URI "#win_shape",
-    PLUGIN_URI "#bpm_div",      PLUGIN_URI "#formant",      PLUGIN_URI "#spec_freeze",
-    PLUGIN_URI "#spec_latch",   PLUGIN_URI "#sub_gain",     PLUGIN_URI "#sub_mode",
-    PLUGIN_URI "#morph_in",     PLUGIN_URI "#morph_out",    PLUGIN_URI "#morph_beats",
-    PLUGIN_URI "#phase_lock",   PLUGIN_URI "#lookahead",
-    PLUGIN_URI "#reverse",      PLUGIN_URI "#grain_random", PLUGIN_URI "#stereo_width",
-    PLUGIN_URI "#spectral_tilt",PLUGIN_URI "#phase_random",
+    PLUGIN_URI "#speed",         PLUGIN_URI "#grain_ms",     PLUGIN_URI "#wet",
+    PLUGIN_URI "#pitch_semi",    PLUGIN_URI "#stutter_div",  PLUGIN_URI "#freeze",
+    PLUGIN_URI "#trans_lock",    PLUGIN_URI "#sensitivity",  PLUGIN_URI "#win_shape",
+    PLUGIN_URI "#bpm_div",       PLUGIN_URI "#formant",      PLUGIN_URI "#spec_freeze",
+    PLUGIN_URI "#spec_latch",    PLUGIN_URI "#sub_gain",     PLUGIN_URI "#sub_mode",
+    PLUGIN_URI "#morph_in",      PLUGIN_URI "#morph_out",    PLUGIN_URI "#morph_beats",
+    PLUGIN_URI "#phase_lock",    PLUGIN_URI "#lookahead",
+    PLUGIN_URI "#reverse",       PLUGIN_URI "#grain_random", PLUGIN_URI "#stereo_width",
+    PLUGIN_URI "#spectral_tilt", PLUGIN_URI "#phase_random",
+    PLUGIN_URI "#input_gain",    PLUGIN_URI "#output_gain",
+    PLUGIN_URI "#eq_low",        PLUGIN_URI "#eq_mid",       PLUGIN_URI "#eq_high",
+    PLUGIN_URI "#eq_out_low",    PLUGIN_URI "#eq_out_mid",   PLUGIN_URI "#eq_out_high",
+    PLUGIN_URI "#manual_bpm",    PLUGIN_URI "#sub_freq",     PLUGIN_URI "#sub_drive",
+    PLUGIN_URI "#smooth",
 };
+
+static_assert(
+    sizeof(STATE_URIS) / sizeof(STATE_URIS[0]) == NUM_STATE_PARAMS,
+    "STATE_URIS count must match NUM_STATE_PARAMS");
 
 static void mapUrids(StateUrids& u, LV2_URID_Map* map) {
     u.atom_Float = map->map(map->handle, LV2_ATOM__Float);
-    for (int i = 0; i < 25; ++i)
+    for (int i = 0; i < NUM_STATE_PARAMS; ++i)
         u.p[i] = map->map(map->handle, STATE_URIS[i]);
 }
+
+
+
+// MARK: LV2 LIFECYCLE
 
 static LV2_Handle instantiate(
     const LV2_Descriptor*, double sr,
@@ -109,13 +159,20 @@ static void activate(LV2_Handle handle) {
 
 static void deactivate(LV2_Handle) {}
 
+
+
+// MARK: AUDIO PROCESSING
+
 static void run(LV2_Handle handle, uint32_t n) {
     auto* inst = static_cast<Instance*>(handle);
 
+    // Extract host tempo from the time:Position atom sequence (if connected)
+    bool hostBpm = false;
     if (inst->ports[PORT_TIME_POS])
-        inst->plugin.processBpmAtoms(
+        hostBpm = inst->plugin.processBpmAtoms(
             static_cast<const LV2_Atom_Sequence*>(inst->ports[PORT_TIME_POS]));
 
+    // Shorthand: read a float control port, defaulting to 0 if unconnected
     auto rf = [&](PortIndex p) -> float {
         return inst->ports[p] ? *static_cast<const float*>(inst->ports[p]) : 0.f;
     };
@@ -146,8 +203,24 @@ static void run(LV2_Handle handle, uint32_t n) {
     c.stereo_width     = rf(CTRL_STEREO_WIDTH);
     c.spectral_tilt    = rf(CTRL_SPECTRAL_TILT);
     c.phase_random     = rf(CTRL_PHASE_RANDOM);
+    c.input_gain       = rf(CTRL_INPUT_GAIN);
+    c.output_gain      = rf(CTRL_OUTPUT_GAIN);
+    c.eq_low           = rf(CTRL_EQ_LOW);
+    c.eq_mid           = rf(CTRL_EQ_MID);
+    c.eq_high          = rf(CTRL_EQ_HIGH);
+    c.eq_out_low       = rf(CTRL_EQ_OUT_LOW);
+    c.eq_out_mid       = rf(CTRL_EQ_OUT_MID);
+    c.eq_out_high      = rf(CTRL_EQ_OUT_HIGH);
+    c.manual_bpm       = rf(CTRL_MANUAL_BPM);
+    c.sub_freq         = rf(CTRL_SUB_FREQ);
+    c.sub_drive        = rf(CTRL_SUB_DRIVE);
+    c.smooth           = rf(CTRL_SMOOTH);
 
     inst->plugin.setControls(c);
+
+    // Fall back to the manual BPM knob when the host doesn't provide tempo
+    if (!hostBpm && c.manual_bpm > 0.f)
+        inst->plugin.setBpm(static_cast<double>(c.manual_bpm));
 
     if (inst->ports[PORT_LATENCY])
         *static_cast<float*>(const_cast<void*>(inst->ports[PORT_LATENCY]))
@@ -164,6 +237,9 @@ static void run(LV2_Handle handle, uint32_t n) {
 static void cleanup(LV2_Handle handle) {
     delete static_cast<Instance*>(handle);
 }
+
+
+// MARK: STATE SAVE AND RESTORE
 
 static LV2_State_Status state_save(
     LV2_Handle handle,
@@ -182,11 +258,16 @@ static LV2_State_Status state_save(
         c.morph_in, c.morph_out, c.morph_beats,
         c.phase_lock, c.lookahead_enable,
         c.reverse, c.grain_random, c.stereo_width,
-        c.spectral_tilt, c.phase_random
+        c.spectral_tilt, c.phase_random,
+        c.input_gain, c.output_gain,
+        c.eq_low, c.eq_mid, c.eq_high,
+        c.eq_out_low, c.eq_out_mid, c.eq_out_high,
+        c.manual_bpm, c.sub_freq, c.sub_drive,
+        c.smooth
     };
-    static_assert(sizeof(fields)/sizeof(float) == 25);
+    static_assert(sizeof(fields)/sizeof(float) == NUM_STATE_PARAMS);
 
-    for (int i = 0; i < 25; ++i)
+    for (int i = 0; i < NUM_STATE_PARAMS; ++i)
         store(sh, u.p[i], &fields[i], sizeof(float), u.atom_Float,
               LV2_STATE_IS_POD | LV2_STATE_IS_PORTABLE);
 
@@ -210,10 +291,15 @@ static LV2_State_Status state_restore(
         &c.morph_in, &c.morph_out, &c.morph_beats,
         &c.phase_lock, &c.lookahead_enable,
         &c.reverse, &c.grain_random, &c.stereo_width,
-        &c.spectral_tilt, &c.phase_random
+        &c.spectral_tilt, &c.phase_random,
+        &c.input_gain, &c.output_gain,
+        &c.eq_low, &c.eq_mid, &c.eq_high,
+        &c.eq_out_low, &c.eq_out_mid, &c.eq_out_high,
+        &c.manual_bpm, &c.sub_freq, &c.sub_drive,
+        &c.smooth
     };
 
-    for (int i = 0; i < 25; ++i) {
+    for (int i = 0; i < NUM_STATE_PARAMS; ++i) {
         std::size_t sz; uint32_t type, flags;
         const void* val = retrieve(sh, u.p[i], &sz, &type, &flags);
         if (val && sz == sizeof(float))
@@ -225,6 +311,9 @@ static LV2_State_Status state_restore(
 }
 
 static const LV2_State_Interface state_iface = { state_save, state_restore };
+
+
+// MARK: LV2 DESCRIPTOR
 
 static const void* extension_data(const char* uri) {
     if (std::string_view(uri) == LV2_STATE__interface) return &state_iface;

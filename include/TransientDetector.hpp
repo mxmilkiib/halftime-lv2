@@ -18,6 +18,10 @@
 
 class TransientDetector {
 public:
+
+
+    // MARK: LIFECYCLE
+
     void setSampleRate(double sr) {
         sr_ = sr;
         hold_max_ = static_cast<uint32_t>(sr * 0.05); // 50ms inter-onset holdoff
@@ -43,6 +47,10 @@ public:
         std::memset(lp_mid_state_, 0, sizeof(lp_mid_state_));
         hold_ = 0;
     }
+
+
+
+    // MARK: PER-SAMPLE PROCESSING
 
     [[nodiscard]] bool process(double x) noexcept {
         // 3-band split via cascaded lowpass filters

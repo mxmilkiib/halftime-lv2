@@ -29,6 +29,7 @@ public:
     static constexpr std::size_t CORR_LEN   = 256;   // samples used for correlation
     static constexpr std::size_t SEARCH_WIN = 512;   // ±samples around nominal position
 
+    // Per-block parameters set by HalftimePlugin::setControls()
     struct Params {
         double speed      = 0.5;
         double grain_ms   = 80.0;
@@ -36,7 +37,12 @@ public:
         bool   trans_lock = false;
         bool   reverse    = false;
         double random     = 0.0;  // 0.0 = no randomization, 1.0 = full grain-length jitter
+        double smooth     = 0.5;  // 0.0 = percussive (dry bleed at loop points), 1.0 = sustain (full crossfade)
     };
+
+
+
+    // MARK: LIFECYCLE
 
     explicit OlaEngine() {
         std::memset(buf_,      0, sizeof(buf_));
@@ -57,6 +63,7 @@ public:
         trans_lock_ = p.trans_lock;
         reverse_    = p.reverse;
         random_     = p.random;
+        smooth_     = std::clamp(p.smooth, 0.0, 1.0);
     }
 
     // Direct per-sample speed setter — bypasses the ms->samples path.
@@ -93,6 +100,10 @@ public:
         boundary_done_[1] = false;
         speed_smoother_.reset(speed_smoother_.target());
     }
+
+
+
+    // MARK: PER-SAMPLE PROCESSING
 
     [[nodiscard]] double process(double input, bool onset) noexcept {
         // Write input into circular buffer
@@ -151,7 +162,20 @@ public:
                 readBuf(ri + MAX_BUF - 1), readBuf(ri),
                 readBuf(ri + 1),           readBuf(ri + 2), frac);
 
-            out += samp * win_lut_[pi] * win_norm_;
+            // Smooth: crossfade dry input at grain boundaries.
+            // When smooth is low (percussive), a short dry-signal bleed
+            // precedes each loop restart so transient attacks aren't lost.
+            // When smooth is high (sustain), the OLA window dominates.
+            double env = win_lut_[pi] * win_norm_;
+            if (smooth_ < 0.99 && pi < fade_len_) {
+                // Fade region at grain start: blend from dry toward OLA
+                const double t = static_cast<double>(pi) / static_cast<double>(fade_len_);
+                // Mix: at t=0 fully dry-weighted, at t=1 fully OLA
+                const double dry_weight = (1.0 - smooth_) * (1.0 - t);
+                env = env * (1.0 - dry_weight) + dry_weight;
+            }
+
+            out += samp * env;
 
             // Advance read phase at smoothed speed
             phase_[g] = std::fmod(phase_[g] + speed, static_cast<double>(gs));
@@ -170,6 +194,10 @@ public:
     }
 
 private:
+
+
+    // MARK: -- internal state
+
     double buf_[MAX_BUF];
 
     // Tail of previous output grain for each interleaved head — WSOLA reference
@@ -186,11 +214,17 @@ private:
     bool        trans_lock_  = false;
     bool        reverse_     = false;
     double      random_      = 0.0;
+    double      smooth_      = 0.5;
+    std::size_t fade_len_     = 256;  // samples of dry-bleed region at grain start
     uint32_t    prng_state_  = 12345;
     WindowShape win_shape_   = WindowShape::Hann;
     double      win_lut_[MAX_GRAIN] = {};
     double      win_norm_    = 1.0;
     ParamSmoother speed_smoother_;
+
+
+
+    // MARK: -- helpers
 
     // Fast LCG PRNG — returns [0.0, 1.0)
     double prngNext() noexcept {
@@ -227,6 +261,10 @@ private:
         const double denom = std::sqrt(denom_ref * denom_cand);
         return (denom > 1e-10) ? (num / denom) : 0.0;
     }
+
+
+
+    // MARK: -- wsola search
 
     // 2-pass hierarchical WSOLA search around nominal position.
     // Pass 1: coarse sweep at step=16 over ±SEARCH_WIN (~64 correlations).
@@ -267,11 +305,17 @@ private:
         return best_pos;
     }
 
+
+
+    // MARK: -- grain sizing
+
     void updateGrain(double ms) noexcept {
         grain_ms_    = ms;
         grain_samps_ = static_cast<std::size_t>(
             std::clamp(ms / 1000.0 * sr_, 1.0,
                        static_cast<double>(MAX_GRAIN)));
+        // Fade region = 1/8 of grain, clamped to a useful range
+        fade_len_ = std::clamp(grain_samps_ / 8, std::size_t{16}, std::size_t{2048});
         rebuildWindowLut();
     }
 
